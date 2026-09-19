@@ -1,0 +1,455 @@
+import {
+  getConfluenceExplanation,
+  getConfluenceLabel,
+  getSignalCards,
+  getUiModel,
+} from '@/lib/tradingEngines';
+
+const navItems = [
+  'Dashboard',
+  'Terminal',
+  'Markets',
+  'Signals',
+  'Trade Planner',
+  'Journal',
+  'Analytics',
+  'Backtester',
+  'Economic Calendar',
+  'Risk Manager',
+  'Psychology',
+  'Daily Plan',
+  'Alerts',
+  'Trade History',
+  'Settings',
+];
+
+const tabFilters = ['Today', '7 Days', '30 Days', '3 Months', '6 Months', '1 Year', 'All Time'];
+
+function classNames(...values: Array<string | false | null | undefined>) {
+  return values.filter(Boolean).join(' ');
+}
+
+export default function HomePage() {
+  const model = getUiModel();
+  const signalCards = getSignalCards();
+
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand-block">
+          <div className="brand-mark">TP</div>
+          <div>
+            <div className="brand-name">TradePilot</div>
+            <div className="brand-subtitle">DEMO MODE</div>
+          </div>
+        </div>
+
+        <nav className="nav-menu">
+          {navItems.map((item, index) => (
+            <button
+              key={item}
+              className={classNames('nav-item', index === 0 && 'nav-item-active')}
+              type="button"
+            >
+              {item}
+            </button>
+          ))}
+        </nav>
+
+        <div className="sidebar-card">
+          <div className="mini-label">Market Sessions</div>
+          {model.sessions.map((session) => (
+            <div key={session.label} className="session-row">
+              <span className={session.active ? 'dot dot-live' : 'dot'} />
+              <span>{session.label}</span>
+              <span className="session-time">{session.time}</span>
+            </div>
+          ))}
+        </div>
+      </aside>
+
+      <main className="main-panel">
+        <header className="topbar">
+          <div>
+            <div className="topbar-label">Trading Terminal</div>
+            <h1>Professional dashboard</h1>
+          </div>
+
+          <div className="topbar-actions">
+            <div className="search-box">Search instruments...</div>
+            <button className="action-button action-primary" type="button">
+              New Signal
+            </button>
+          </div>
+        </header>
+
+        <section className="time-range-row">
+          {tabFilters.map((filter, index) => (
+            <button
+              key={filter}
+              type="button"
+              className={classNames('range-pill', index === 0 && 'range-pill-active')}
+            >
+              {filter}
+            </button>
+          ))}
+        </section>
+
+        <section className="stats-grid">
+          {model.accountStats.map((stat) => (
+            <div key={stat.label} className="stat-card">
+              <div className="metric-label">{stat.label}</div>
+              <div className="metric-value">{stat.value}</div>
+              <div className="metric-trend positive">{stat.trend}</div>
+            </div>
+          ))}
+        </section>
+
+        <section className="content-grid">
+          <div className="panel large-panel">
+            <div className="panel-head">
+              <div>
+                <div className="mini-label">Terminal</div>
+                <h2>Advanced chart</h2>
+              </div>
+              <div className="panel-tools">
+                <span>BTCUSD</span>
+                <span>H1</span>
+                <span>TradingView</span>
+              </div>
+            </div>
+
+            <div className="chart-toolbar">
+              <button type="button">Candles</button>
+              <button type="button">Line</button>
+              <button type="button">Area</button>
+              <button type="button">Volume</button>
+              <button type="button">Indicators</button>
+              <button type="button">Drawing</button>
+            </div>
+
+            <div className="chart-box">
+              <div className="chart-grid" aria-label="Chart mock layout">
+                {Array.from({ length: 18 }).map((_, i) => (
+                  <div key={i} className="chart-bar" style={{ height: `${40 + ((i * 11) % 60)}px`, left: `${i * 5.3}%` }} />
+                ))}
+              </div>
+              <div className="chart-overlay">
+                <div className="price-tag price-green">3421.60</div>
+                <div className="price-tag price-red">3408.90</div>
+              </div>
+            </div>
+
+            <div className="timeframe-row">
+              {['1m', '3m', '5m', '15m', '30m', '1H', '2H', '4H', '1D', '1W', '1M'].map((tf) => (
+                <button key={tf} type="button" className={tf === '1H' ? 'timeframe active' : 'timeframe'}>
+                  {tf}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="panel side-panel">
+            <div className="panel-head compact-head">
+              <div>
+                <div className="mini-label">Watchlist</div>
+                <h2>Market overview</h2>
+              </div>
+            </div>
+
+            <div className="watchlist">
+              {model.watchlist.map((item) => (
+                <div key={item.symbol} className="watch-row">
+                  <div>
+                    <div className="symbol-name">{item.symbol}</div>
+                    <div className="watch-meta">{item.session}</div>
+                  </div>
+                  <div className="watch-mid">
+                    <div className="watch-price">{typeof item.price === 'number' ? item.price.toLocaleString() : item.price}</div>
+                    <div className={item.chg.startsWith('-') ? 'watch-change negative' : 'watch-change positive'}>{item.chg}</div>
+                  </div>
+                  <div className={item.signal === 'BUY' ? 'signal-badge buy' : 'signal-badge sell'}>{item.signal}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="two-col-grid">
+          <div className="panel">
+            <div className="panel-head">
+              <div>
+                <div className="mini-label">Signal Engine</div>
+                <h2>Active setups</h2>
+              </div>
+            </div>
+
+            <div className="signal-stack">
+              {signalCards.map((signal) => (
+                <div key={`${signal.symbol}-${signal.direction}`} className="signal-card">
+                  <div className="signal-header">
+                    <div>
+                      <div className="symbol-name">{signal.symbol}</div>
+                      <div className={signal.direction === 'BUY' ? 'signal-pill buy' : 'signal-pill sell'}>{signal.direction}</div>
+                    </div>
+                    <div className="confluence-pill">{signal.confluence}% CONFLUENCE</div>
+                  </div>
+
+                  <div className="setup-block">
+                    <div className="setup-label">Setup</div>
+                    <div className="setup-text">{signal.setup}</div>
+                  </div>
+
+                  <div className="trade-grid">
+                    <div><span>Entry</span><strong>{signal.entry}</strong></div>
+                    <div><span>Stop</span><strong>{signal.stop}</strong></div>
+                    <div><span>Take Profit</span><strong>{signal.tp}</strong></div>
+                    <div><span>R:R</span><strong>{signal.rr}</strong></div>
+                    <div><span>Timeframe</span><strong>{signal.tf}</strong></div>
+                    <div><span>Bias</span><strong>{signal.bias}</strong></div>
+                  </div>
+
+                  <div className="why-box">
+                    <div className="mini-label">WHY THIS SIGNAL EXISTS</div>
+                    <ul>
+                      <li>✓ H4 bullish structure</li>
+                      <li>✓ Sell-side liquidity swept</li>
+                      <li>✓ Bullish CHoCH and order block retest</li>
+                      <li>✓ Discount zone alignment</li>
+                      <li>✓ Rejection candle confirmation</li>
+                      <li>✕ MACD confirmation pending</li>
+                    </ul>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="stack">
+            <div className="panel">
+              <div className="panel-head">
+                <div>
+                  <div className="mini-label">Confluence</div>
+                  <h2>Weighted analysis</h2>
+                </div>
+              </div>
+
+              <div className="confluence-total">87% CONFLUENCE</div>
+              <div className="caption-text">{getConfluenceExplanation()}</div>
+              <div className="score-line">
+                <div className="score-fill" style={{ width: '87%' }} />
+              </div>
+              <div className="score-label">{getConfluenceLabel(87)}</div>
+
+              <div className="breakdown-list">
+                {model.confluenceBreakdown.map((item) => (
+                  <div key={item.label} className="breakdown-row">
+                    <span>{item.label}</span>
+                    <strong>{item.value}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="panel">
+              <div className="panel-head">
+                <div>
+                  <div className="mini-label">NO-TRADE Engine</div>
+                  <h2>Why no signal</h2>
+                </div>
+              </div>
+              <ul className="reason-list">
+                {model.noTradeReasons.map((reason) => (
+                  <li key={reason}>• {reason}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section className="two-col-grid">
+          <div className="panel">
+            <div className="panel-head">
+              <div>
+                <div className="mini-label">Multi-Timeframe</div>
+                <h2>Directional bias</h2>
+              </div>
+            </div>
+            <div className="mtf-box">
+              {model.multiTimeframe.map((item) => (
+                <div key={item.label} className="mtf-row">
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="panel-head">
+              <div>
+                <div className="mini-label">Risk Manager</div>
+                <h2>Trade planner</h2>
+              </div>
+            </div>
+            <div className="risk-box">
+              {model.riskPlanner.map((item) => (
+                <div key={item.label} className="risk-row">
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="two-col-grid">
+          <div className="panel">
+            <div className="panel-head">
+              <div>
+                <div className="mini-label">Journal</div>
+                <h2>Recent trades</h2>
+              </div>
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Symbol</th>
+                    <th>Direction</th>
+                    <th>Setup</th>
+                    <th>P/L</th>
+                    <th>R</th>
+                    <th>Session</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {model.journalEntries.map((entry) => (
+                    <tr key={`${entry.symbol}-${entry.strategy}`}>
+                      <td>{entry.symbol}</td>
+                      <td>{entry.direction}</td>
+                      <td>{entry.setup}</td>
+                      <td className={entry.pnl.startsWith('-') ? 'negative' : 'positive'}>{entry.pnl}</td>
+                      <td>{entry.r}</td>
+                      <td>{entry.session}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="panel-head">
+              <div>
+                <div className="mini-label">Daily Plan</div>
+                <h2>Checklist</h2>
+              </div>
+            </div>
+            <ul className="checklist">
+              {model.dailyPlanChecklist.map((item) => (
+                <li key={item}>✓ {item}</li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        <section className="two-col-grid">
+          <div className="panel">
+            <div className="panel-head">
+              <div>
+                <div className="mini-label">Economic Calendar</div>
+                <h2>Upcoming events</h2>
+              </div>
+            </div>
+            <div className="table-wrap compact-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Currency</th>
+                    <th>Event</th>
+                    <th>Impact</th>
+                    <th>Forecast</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {model.economicCalendar.map((event) => (
+                    <tr key={`${event.time}-${event.event}`}>
+                      <td>{event.time}</td>
+                      <td>{event.currency}</td>
+                      <td>{event.event}</td>
+                      <td>{event.impact}</td>
+                      <td>{event.forecast}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="panel-head">
+              <div>
+                <div className="mini-label">Psychology</div>
+                <h2>Emotional states</h2>
+              </div>
+            </div>
+            <div className="emotion-grid">
+              {model.emotionalStats.map((stat) => (
+                <div key={stat.label} className="emotion-box">
+                  <div className="emotion-label">{stat.label}</div>
+                  <div className="emotion-value">{stat.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="panel full-panel">
+          <div className="panel-head">
+            <div>
+              <div className="mini-label">Trade History</div>
+              <h2>Recent executions</h2>
+            </div>
+          </div>
+
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Symbol</th>
+                  <th>Direction</th>
+                  <th>Entry</th>
+                  <th>Exit</th>
+                  <th>SL</th>
+                  <th>TP</th>
+                  <th>P/L</th>
+                  <th>Confluence</th>
+                  <th>Strategy</th>
+                </tr>
+              </thead>
+              <tbody>
+                {model.tradeHistory.map((trade) => (
+                  <tr key={`${trade.date}-${trade.symbol}`}>
+                    <td>{trade.date}</td>
+                    <td>{trade.symbol}</td>
+                    <td>{trade.direction}</td>
+                    <td>{trade.entry}</td>
+                    <td>{trade.exit}</td>
+                    <td>{trade.sl}</td>
+                    <td>{trade.tp}</td>
+                    <td className={trade.pnl.startsWith('-') ? 'negative' : 'positive'}>{trade.pnl}</td>
+                    <td>{trade.confluence}</td>
+                    <td>{trade.strategy}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}

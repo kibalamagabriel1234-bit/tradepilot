@@ -57,10 +57,10 @@ export default function TradePilotPage() {
     window.localStorage.setItem('tradepilot-manual-account', JSON.stringify({ balance, risk }));
   };
 
-  const filtered = useMemo(
-    () => prices.filter((item) => item.symbol.toLowerCase().includes(query.toLowerCase())),
-    [prices, query],
-  );
+  const liveRows = useMemo(() => {
+    const rows = prices.length ? prices : watchlist.map((item) => ({ symbol: item.symbol, price: item.price, change24h: Number.parseFloat(item.chg.replace('%', '')) || 0, source: 'Demo feed', updatedAt: Date.now() }));
+    return rows.filter((item) => item.symbol.toLowerCase().includes(query.toLowerCase()));
+  }, [prices, query]);
 
   const riskAmount = Number(balance || 0) * Number(risk || 0) / 100;
   const distance = Math.abs(Number(manualEntry || 0) - Number(manualStop || 0));
@@ -154,7 +154,7 @@ export default function TradePilotPage() {
 
             <div className="chart-toolbar">
               {['1m', '5m', '15m', '1H', '4H', '1D'].map((tf) => (
-                <button key={tf} className="timeframe active">{tf}</button>
+                <button key={tf} className={`timeframe ${tf === '1H' ? 'active' : ''}`}>{tf}</button>
               ))}
             </div>
 
@@ -199,12 +199,12 @@ export default function TradePilotPage() {
             </div>
 
             <div className="watchlist">
-              {filtered.length === 0 && <p className="caption-text">No matching pairs found.</p>}
-              {filtered.map((item) => (
+              {liveRows.length === 0 && <p className="caption-text">No matching pairs found.</p>}
+              {liveRows.map((item) => (
                 <button className="watch-row" key={item.symbol} onClick={() => setQuery(item.symbol)}>
                   <div>
                     <div className="symbol-name">{item.symbol}</div>
-                    <div className="watch-meta">{item.source}</div>
+                    <div className="watch-meta">{item.source ?? 'Demo feed'}</div>
                   </div>
                   <div className="watch-mid">
                     <div className="watch-price">
@@ -275,7 +275,7 @@ export default function TradePilotPage() {
 
               <div className="manual-result">
                 <span>Risk amount</span>
-                <strong>${Number(balance || 0) * Number(risk || 0) / 100}</strong>
+                <strong>${riskAmount.toFixed(2)}</strong>
               </div>
 
               <button className="action-button action-primary full-width" onClick={saveManual}>

@@ -5,47 +5,52 @@ import { activeSignals, economicCalendar, marketStats, multiTimeframe, watchlist
 
 const nav = ['Dashboard', 'Terminal', 'Markets', 'Signals', 'Trade Planner', 'Journal', 'Analytics', 'Backtester', 'Economic Calendar', 'Risk Manager', 'Psychology', 'Daily Plan', 'Alerts', 'Trade History', 'Settings'];
 const symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'NAS100'];
-const journalEntries = [
-  { time: '09:42', setup: 'EURUSD BUY', note: 'Bullish retrace into support with strong structure.', pnl: '+$180' },
-  { time: '11:10', setup: 'XAUUSD BUY', note: 'Demand zone defended after liquidity sweep.', pnl: '+$260' },
-  { time: '14:30', setup: 'BTCUSD SELL', note: 'Failed breakout into local resistance.', pnl: '+$420' },
-];
-const planChecklist = ['Review H4/H1 bias before entry', 'Check risk reward and max loss', 'Confirm trade plan before execution', 'Journal outcome within 10 minutes'];
-const riskBuckets = [
-  { label: 'Max risk per trade', value: '1.0%' },
-  { label: 'Max daily loss', value: '3.0%' },
-  { label: 'Max open trades', value: '3' },
-  { label: 'Session rule', value: 'No revenge trading' },
-];
-const brokerOptions = [
-  { name: 'JustMarkets', type: 'MT5 EA / VPS', status: 'Demo-ready', supports: ['Auto entry', 'Break even', 'Partial close'] },
-  { name: 'Markets.com', type: 'MT5 EA / VPS', status: 'Demo-ready', supports: ['Auto entry', 'Break even', 'Partial close'] },
-  { name: 'Exness', type: 'MT5 EA / VPS', status: 'Demo-ready', supports: ['Auto entry', 'Break even', 'Partial close'] },
-  { name: 'HFM', type: 'MT5 EA / VPS', status: 'Demo-ready', supports: ['Auto entry', 'Break even', 'Partial close'] },
-  { name: 'FBS', type: 'MT5 EA / VPS', status: 'Demo-ready', supports: ['Auto entry', 'Break even', 'Partial close'] },
-  { name: 'Deriv', type: 'REST / WebSocket API', status: 'API-ready', supports: ['API execution', 'Position sync', 'Trade logs'] },
-];
+const brokerOptions = ['JustMarkets', 'Markets.com', 'Exness', 'HFM', 'FBS', 'Deriv'];
+const structureTargets: Record<string, { tp1: number; tp2: number; reason: string }> = {
+  XAUUSD: { tp1: 3426.2, tp2: 3432.5, reason: 'prior intraday high + external liquidity' },
+  EURUSD: { tp1: 1.0872, tp2: 1.0896, reason: 'swing high + opposing supply' },
+  BTCUSD: { tp1: 61420, tp2: 61010, reason: 'range midpoint + sell-side liquidity' },
+};
 
-type LivePrice = { symbol: string; price: number | null; change24h: number | null; source: string; error?: string; updatedAt: number };
+type LivePrice = { symbol: string; price: number | null; change24h: number | null; source: string; updatedAt: number };
+type SignalStatus = 'ACTIVE' | 'TP 1 HIT' | 'TP 2 HIT' | 'STOP LOSS HIT' | 'CLOSED';
+type TrackedSignal = { status: SignalStatus; taken: boolean; updatedAt: string };
 
 export default function TradePilotPage() {
   const [selected, setSelected] = useState('Dashboard');
   const [query, setQuery] = useState('');
   const [prices, setPrices] = useState<LivePrice[]>([]);
+  const [updated, setUpdated] = useState('');
   const [balance, setBalance] = useState('10000');
   const [risk, setRisk] = useState('1');
   const [manualEntry, setManualEntry] = useState('');
   const [manualStop, setManualStop] = useState('');
   const [manualTarget, setManualTarget] = useState('');
-  const [updated, setUpdated] = useState('');
-  const [selectedBroker, setSelectedBroker] = useState(brokerOptions[0].name);
+  const [selectedBroker, setSelectedBroker] = useState('JustMarkets');
   const [brokerAccount, setBrokerAccount] = useState<'Demo' | 'Live'>('Demo');
-  const [autoExecute, setAutoExecute] = useState(true);
+  const [autoExecute, setAutoExecute] = useState(false);
   const [minConfidence, setMinConfidence] = useState('80');
   const [pair, setPair] = useState('EURUSD');
   const [breakEven, setBreakEven] = useState('20');
   const [partialClose, setPartialClose] = useState('50');
-  const [tpLevels, setTpLevels] = useState('1:2, 1:4');
+  const [tpLevels, setTpLevels] = useState('TP1: structure high, TP2: external liquidity');
+  const [tracked, setTracked] = useState<Record<string, TrackedSignal>>({});
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem('tradepilot-signal-tracking');
+    if (saved) setTracked(JSON.parse(saved));
+    const account = window.localStorage.getItem('tradepilot-manual-account');
+    if (account) {
+      const data = JSON.parse(account);
+      setBalance(data.balance ?? '10000');
+      setRisk(data.risk ?? '1');
+    }
+  }, []);
+
+  const saveTracked = (next: Record<string, TrackedSignal>) => {
+    setTracked(next);
+    window.localStorage.setItem('tradepilot-signal-tracking', JSON.stringify(next));
+  };
 
   const loadPrices = async () => {
     const response = await fetch(`/api/market?symbols=${symbols.join(',')}`, { cache: 'no-store' });
@@ -60,444 +65,56 @@ export default function TradePilotPage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    const saved = window.localStorage.getItem('tradepilot-manual-account');
-    if (saved) {
-      const data = JSON.parse(saved);
-      setBalance(data.balance ?? '10000');
-      setRisk(data.risk ?? '1');
-    }
-  }, []);
-
-  const saveManual = () => {
-    window.localStorage.setItem('tradepilot-manual-account', JSON.stringify({ balance, risk }));
-  };
-
   const liveRows = useMemo(() => {
     const rows = prices.length ? prices : watchlist.map((item) => ({ symbol: item.symbol, price: item.price, change24h: Number.parseFloat(item.chg.replace('%', '')) || 0, source: 'Demo feed', updatedAt: Date.now() }));
     return rows.filter((item) => item.symbol.toLowerCase().includes(query.toLowerCase()));
   }, [prices, query]);
 
+  const activeTrade = Object.entries(tracked).find(([, item]) => item.taken && !['TP 2 HIT', 'STOP LOSS HIT', 'CLOSED'].includes(item.status));
   const riskAmount = Number(balance || 0) * Number(risk || 0) / 100;
   const distance = Math.abs(Number(manualEntry || 0) - Number(manualStop || 0));
   const reward = Math.abs(Number(manualTarget || 0) - Number(manualEntry || 0));
   const rr = distance > 0 ? reward / distance : 0;
-  const activeBroker = brokerOptions.find((broker) => broker.name === selectedBroker) ?? brokerOptions[0];
+
+  const takeSignal = (symbol: string) => {
+    if (activeTrade && activeTrade[0] !== symbol) return;
+    saveTracked({ ...tracked, [symbol]: { status: 'ACTIVE', taken: true, updatedAt: new Date().toISOString() } });
+  };
+
+  const updateSignalStatus = (symbol: string, status: SignalStatus) => {
+    const current = tracked[symbol];
+    if (!current?.taken) return;
+    saveTracked({ ...tracked, [symbol]: { ...current, status, updatedAt: new Date().toISOString() } });
+  };
+
+  const releaseTrade = (symbol: string) => updateSignalStatus(symbol, 'CLOSED');
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand-block">
-          <div className="brand-mark">TP</div>
-          <div>
-            <div className="brand-name">TradePilot</div>
-            <div className="brand-subtitle">REAL PRICES · MANUAL ACCOUNT</div>
-          </div>
-        </div>
-
-        <nav className="nav-menu">
-          {nav.map((item) => (
-            <button
-              key={item}
-              className={selected === item ? 'nav-item nav-item-active' : 'nav-item'}
-              onClick={() => setSelected(item)}
-            >
-              {item}
-            </button>
-          ))}
-        </nav>
-
-        <div className="sidebar-card">
-          <div className="mini-label">Data status</div>
-          <strong className="positive">LIVE PROVIDER</strong>
-          <p className="caption-text">
-            Public market prices are shown. Balance, risk, and execution are manual-only and never
-            sent to a broker.
-          </p>
-        </div>
+        <div className="brand-block"><div className="brand-mark">TP</div><div><div className="brand-name">TradePilot</div><div className="brand-subtitle">STRUCTURE · SIGNALS · EXECUTION</div></div></div>
+        <nav className="nav-menu">{nav.map((item) => <button key={item} className={selected === item ? 'nav-item nav-item-active' : 'nav-item'} onClick={() => setSelected(item)}>{item}</button>)}</nav>
+        <div className="sidebar-card"><div className="mini-label">Trade lock</div><strong className={activeTrade ? 'warning' : 'positive'}>{activeTrade ? `ACTIVE · ${activeTrade[0]}` : 'READY FOR SIGNAL'}</strong><p className="caption-text">{activeTrade ? 'New signals are paused until this trade reaches TP2, stop loss, or is closed.' : 'Take a signal to pause competing signals while your trade is active.'}</p></div>
       </aside>
 
       <main className="main-panel">
-        <header className="topbar">
-          <div>
-            <div className="topbar-label">{selected}</div>
-            <h1>Risk-aware market analysis terminal</h1>
-          </div>
+        <header className="topbar"><div><div className="topbar-label">{selected}</div><h1>Premium structure-led trading terminal</h1></div><div className="topbar-actions"><input className="search-box" placeholder="Filter symbols" value={query} onChange={(e) => setQuery(e.target.value)} /><button className="action-button action-primary" onClick={loadPrices}>Refresh prices</button></div></header>
 
-          <div className="topbar-actions">
-            <input
-              className="search-box"
-              placeholder="Filter symbols"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <button className="action-button action-primary" onClick={loadPrices}>
-              Refresh prices
-            </button>
-          </div>
-        </header>
+        <div className="notice"><strong>STRUCTURE-BASED TARGETS</strong><span>TP1 and TP2 are mapped to swing highs, lows, liquidity, supply, demand, and other market structure — never calculated from risk-to-reward.</span><small>{updated ? `Updated ${new Date(updated).toLocaleTimeString()}` : 'Loading...'}</small></div>
 
-        <div className="notice">
-          <strong>MARKET DATA ONLY</strong>
-          <span>
-            Prices are fetched from public providers. Your balance, risk, plan and journal are manual,
-            browser-local inputs. No execution or broker connection is active.
-          </span>
-          <small>{updated ? `Updated ${new Date(updated).toLocaleTimeString()}` : 'Loading...'}</small>
-        </div>
-
-        <section className="stats-grid">
-          {marketStats.slice(0, 6).map((item) => (
-            <div className="stat-card" key={item.label}>
-              <div className="metric-label">{item.label}</div>
-              <div className="metric-value">{item.value}</div>
-              <div className="metric-trend positive">Manual portfolio view</div>
-            </div>
-          ))}
-        </section>
+        <section className="stats-grid">{marketStats.slice(0, 6).map((item) => <div className="stat-card" key={item.label}><div className="metric-label">{item.label}</div><div className="metric-value">{item.value}</div><div className="metric-trend positive">Account view</div></div>)}</section>
 
         <section className="content-grid">
-          <div className="panel large-panel">
-            <div className="panel-head">
-              <div>
-                <div className="mini-label">Terminal</div>
-                <h2>Live market overview</h2>
-              </div>
-              <div className="panel-tools">
-                <span>● Public data</span>
-                <span>Manual risk</span>
-              </div>
-            </div>
-
-            <div className="chart-toolbar">
-              {['1m', '5m', '15m', '1H', '4H', '1D'].map((tf) => (
-                <button key={tf} className={`timeframe ${tf === '1H' ? 'active' : ''}`}>{tf}</button>
-              ))}
-            </div>
-
-            <div className="chart-box">
-              <div className="chart-grid" />
-              {Array.from({ length: 18 }, (_, i) => (
-                <span
-                  key={i}
-                  className="chart-bar"
-                  style={{ height: `${26 + ((i * 17) % 160)}px`, left: `${i * 5.4}%` }}
-                />
-              ))}
-              <div className="chart-label bull">BULLISH STRUCTURE</div>
-              <div className="chart-label fvg">SUPPORT / FVG</div>
-            </div>
-
-            <div className="analysis-strip">
-              <span>
-                H4 <b className="positive">Bullish</b>
-              </span>
-              <span>
-                H1 <b className="positive">Bullish</b>
-              </span>
-              <span>
-                M15 <b className="positive">Bullish</b>
-              </span>
-              <span>
-                M5 <b className="warning">Watch</b>
-              </span>
-              <span>
-                Regime <b>Trend</b>
-              </span>
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="panel-head">
-              <div>
-                <div className="mini-label">Live watchlist</div>
-                <h2>Provider prices</h2>
-              </div>
-            </div>
-
-            <div className="watchlist">
-              {liveRows.length === 0 && <p className="caption-text">No matching pairs found.</p>}
-              {liveRows.map((item) => (
-                <button className="watch-row" key={item.symbol} onClick={() => setQuery(item.symbol)}>
-                  <div>
-                    <div className="symbol-name">{item.symbol}</div>
-                    <div className="watch-meta">{item.source ?? 'Demo feed'}</div>
-                  </div>
-                  <div className="watch-mid">
-                    <div className="watch-price">
-                      {item.price === null ? 'Unavailable' : item.price.toLocaleString(undefined, { maximumFractionDigits: 6 })}
-                    </div>
-                    <div className={item.change24h !== null && item.change24h < 0 ? 'negative' : 'positive'}>
-                      {item.change24h === null ? '—' : `${item.change24h.toFixed(2)}%`}
-                    </div>
-                  </div>
-                  <span className="signal-badge buy">DATA</span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <div className="panel large-panel"><div className="panel-head"><div><div className="mini-label">Terminal</div><h2>Live market overview</h2></div><div className="panel-tools"><span>● Public data</span><span>{activeTrade ? 'Trade active' : 'No active trade'}</span></div></div><div className="chart-toolbar">{['1m', '5m', '15m', '1H', '4H', '1D'].map((tf) => <button key={tf} className={`timeframe ${tf === '1H' ? 'active' : ''}`}>{tf}</button>)}</div><div className="chart-box"><div className="chart-grid" />{Array.from({ length: 18 }, (_, i) => <span key={i} className="chart-bar" style={{ height: `${26 + ((i * 17) % 160)}px`, left: `${i * 5.4}%` }} />)}<div className="chart-label bull">STRUCTURE CONFIRMED</div><div className="chart-label fvg">POI / LIQUIDITY</div></div><div className="analysis-strip"><span>H4 <b className="positive">Bullish</b></span><span>H1 <b className="positive">Bullish</b></span><span>M15 <b className="positive">Bullish</b></span><span>M5 <b className="warning">Watch</b></span><span>Regime <b>Trend</b></span></div></div>
+          <div className="panel"><div className="panel-head"><div><div className="mini-label">Live watchlist</div><h2>Provider prices</h2></div></div><div className="watchlist">{liveRows.length === 0 && <p className="caption-text">No matching pairs found.</p>}{liveRows.map((item) => <button className="watch-row" key={item.symbol} onClick={() => setQuery(item.symbol)}><div><div className="symbol-name">{item.symbol}</div><div className="watch-meta">{item.source}</div></div><div className="watch-mid"><div className="watch-price">{item.price === null ? 'Unavailable' : item.price.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div><div className={item.change24h !== null && item.change24h < 0 ? 'negative' : 'positive'}>{item.change24h === null ? '—' : `${item.change24h.toFixed(2)}%`}</div></div><span className="signal-badge buy">DATA</span></button>)}</div></div>
         </section>
 
-        <section className="two-col-grid">
-          <div className="panel">
-            <div className="panel-head">
-              <div>
-                <div className="mini-label">Signal engine</div>
-                <h2>Explainable setups</h2>
-              </div>
-            </div>
+        <section className="two-col-grid"><div className="panel"><div className="panel-head"><div><div className="mini-label">Signal engine</div><h2>Structure targets & signal status</h2></div>{activeTrade && <span className="warning">Signal lock active</span>}</div>{activeSignals.map((signal) => { const target = structureTargets[signal.symbol]; const record = tracked[signal.symbol]; const blocked = Boolean(activeTrade && activeTrade[0] !== signal.symbol && !record?.taken); return <article className="signal-card" key={signal.symbol}><div className="signal-header"><div><div className="symbol-name">{signal.symbol}</div><span className="signal-pill buy">{signal.direction}</span></div><span className="confluence-pill">{signal.confluence}%</span></div><p className="setup-text">{signal.setup}</p><div className="trade-grid"><div><span>Entry</span><strong>{signal.entry}</strong></div><div><span>Stop</span><strong>{signal.stop}</strong></div><div><span>TP1 · structure</span><strong>{target?.tp1 ?? signal.tp}</strong></div><div><span>TP2 · structure</span><strong>{target?.tp2 ?? signal.tp}</strong></div><div><span>Target basis</span><strong>{target?.reason ?? 'market structure'}</strong></div><div><span>Status</span><strong className={record?.status === 'STOP LOSS HIT' ? 'negative' : record?.status?.includes('TP') ? 'positive' : 'warning'}>{record?.status ?? 'WAITING'}</strong></div></div><div className="signal-actions"><button className="action-button action-primary" disabled={blocked || Boolean(record?.taken)} onClick={() => takeSignal(signal.symbol)}>{record?.taken ? 'Trade taken' : blocked ? 'Paused by active trade' : 'I took this trade'}</button>{record?.taken && <><button className="action-button" onClick={() => updateSignalStatus(signal.symbol, 'TP 1 HIT')}>TP1 hit</button><button className="action-button" onClick={() => updateSignalStatus(signal.symbol, 'TP 2 HIT')}>TP2 hit</button><button className="action-button" onClick={() => updateSignalStatus(signal.symbol, 'STOP LOSS HIT')}>Stop loss hit</button><button className="action-button" onClick={() => releaseTrade(signal.symbol)}>Close trade</button></>}</div>{record?.updatedAt && <small className="watch-meta">Tracked {new Date(record.updatedAt).toLocaleString()}</small>}</article>})}</div>
+          <div className="stack"><div className="panel"><div className="panel-head"><div><div className="mini-label">Manual account</div><h2>Risk controls</h2></div></div><label className="field-label">Balance<input className="field" inputMode="decimal" value={balance} onChange={(e) => setBalance(e.target.value)} /></label><label className="field-label">Risk per trade %<input className="field" inputMode="decimal" value={risk} onChange={(e) => setRisk(e.target.value)} /></label><div className="manual-result"><span>Risk amount</span><strong>${riskAmount.toFixed(2)}</strong></div><button className="action-button action-primary full-width" onClick={() => window.localStorage.setItem('tradepilot-manual-account', JSON.stringify({ balance, risk }))}>Save manually</button></div><div className="panel"><div className="panel-head"><div><div className="mini-label">Trade planner</div><h2>Manual levels</h2></div></div><div className="planner-grid"><label className="field-label">Entry<input className="field" inputMode="decimal" value={manualEntry} onChange={(e) => setManualEntry(e.target.value)} /></label><label className="field-label">Stop loss<input className="field" inputMode="decimal" value={manualStop} onChange={(e) => setManualStop(e.target.value)} /></label><label className="field-label">Structure target<input className="field" inputMode="decimal" value={manualTarget} onChange={(e) => setManualTarget(e.target.value)} /></label></div><div className="manual-result"><span>Reference R:R only</span><strong>{rr ? `1:${rr.toFixed(2)}` : 'Enter levels'}</strong></div></div></div></section>
 
-            {activeSignals.map((signal) => (
-              <article className="signal-card" key={signal.symbol}>
-                <div className="signal-header">
-                  <div>
-                    <div className="symbol-name">{signal.symbol}</div>
-                    <span className="signal-pill buy">{signal.direction}</span>
-                  </div>
-                  <span className="confluence-pill">{signal.confluence}%</span>
-                </div>
+        <section className="panel compact-panel broker-panel"><div className="panel-head"><div><div className="mini-label">Broker automation</div><h2>Execution router</h2></div><span className="broker-status-label">{autoExecute ? 'Demo-ready' : 'Manual mode'}</span></div><div className="broker-grid"><div className="broker-options">{brokerOptions.map((broker) => <button key={broker} className={selectedBroker === broker ? 'broker-option active' : 'broker-option'} onClick={() => setSelectedBroker(broker)}><strong>{broker}</strong><small>{broker === 'Deriv' ? 'REST / WebSocket API' : 'MT5 EA / VPS'}</small><span>Demo-ready</span></button>)}</div><div className="broker-settings"><div className="inline-group"><label className="field-label compact-label">Account<select className="field" value={brokerAccount} onChange={(e) => setBrokerAccount(e.target.value as 'Demo' | 'Live')}><option>Demo</option><option>Live</option></select></label><label className="field-label compact-label">Pair<select className="field" value={pair} onChange={(e) => setPair(e.target.value)}>{symbols.map((symbol) => <option key={symbol}>{symbol}</option>)}</select></label></div><div className="inline-group"><label className="field-label compact-label">Minimum confidence %<input className="field" type="number" min="0" max="100" value={minConfidence} onChange={(e) => setMinConfidence(e.target.value)} /></label><label className="field-label compact-label">Auto execution<button className={autoExecute ? 'toggle active' : 'toggle'} onClick={() => setAutoExecute((value) => !value)} type="button">{autoExecute ? 'ON' : 'OFF'}</button></label></div><div className="inline-group"><label className="field-label compact-label">Break even pips<input className="field" type="number" value={breakEven} onChange={(e) => setBreakEven(e.target.value)} /></label><label className="field-label compact-label">Partial close %<input className="field" type="number" value={partialClose} onChange={(e) => setPartialClose(e.target.value)} /></label></div><label className="field-label compact-label">TP levels are structural<input className="field" value={tpLevels} onChange={(e) => setTpLevels(e.target.value)} /></label><div className="broker-actions"><button className="action-button action-primary">Save automation profile</button><button className="action-button">Test demo signal</button></div></div></div></section>
 
-                <p className="setup-text">{signal.setup}</p>
-
-                <div className="trade-grid">
-                  <div><span>Entry</span><strong>{signal.entry}</strong></div>
-                  <div><span>Stop</span><strong>{signal.stop}</strong></div>
-                  <div><span>TP</span><strong>{signal.tp}</strong></div>
-                  <div><span>R:R</span><strong>{signal.rr}</strong></div>
-                  <div><span>TF</span><strong>{signal.tf}</strong></div>
-                  <div><span>Bias</span><strong>{signal.bias}</strong></div>
-                </div>
-              </article>
-            ))}
-          </div>
-
-          <div className="stack">
-            <div className="panel">
-              <div className="panel-head">
-                <div>
-                  <div className="mini-label">Manual account</div>
-                  <h2>Risk controls</h2>
-                </div>
-              </div>
-
-              <label className="field-label">
-                Balance
-                <input className="field" inputMode="decimal" value={balance} onChange={(e) => setBalance(e.target.value)} />
-              </label>
-
-              <label className="field-label">
-                Risk per trade %
-                <input className="field" inputMode="decimal" value={risk} onChange={(e) => setRisk(e.target.value)} />
-              </label>
-
-              <div className="manual-result">
-                <span>Risk amount</span>
-                <strong>${riskAmount.toFixed(2)}</strong>
-              </div>
-
-              <button className="action-button action-primary full-width" onClick={saveManual}>
-                Save manually
-              </button>
-            </div>
-
-            <div className="panel">
-              <div className="panel-head">
-                <div>
-                  <div className="mini-label">Trade planner</div>
-                  <h2>Entry / stop / target</h2>
-                </div>
-              </div>
-
-              <div className="planner-grid">
-                <label className="field-label">
-                  Entry
-                  <input className="field" inputMode="decimal" value={manualEntry} onChange={(e) => setManualEntry(e.target.value)} />
-                </label>
-                <label className="field-label">
-                  Stop loss
-                  <input className="field" inputMode="decimal" value={manualStop} onChange={(e) => setManualStop(e.target.value)} />
-                </label>
-                <label className="field-label">
-                  Take profit
-                  <input className="field" inputMode="decimal" value={manualTarget} onChange={(e) => setManualTarget(e.target.value)} />
-                </label>
-              </div>
-
-              <div className="manual-result">
-                <span>Manual R:R</span>
-                <strong>{rr ? `1:${rr.toFixed(2)}` : 'Enter levels'}</strong>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="panel compact-panel broker-panel">
-          <div className="panel-head">
-            <div>
-              <div className="mini-label">Broker automation</div>
-              <h2>Execution router</h2>
-            </div>
-            <span className="broker-status-label">{activeBroker.status}</span>
-          </div>
-
-          <div className="broker-grid">
-            <div className="broker-options">
-              {brokerOptions.map((broker) => (
-                <button
-                  key={broker.name}
-                  className={selectedBroker === broker.name ? 'broker-option active' : 'broker-option'}
-                  onClick={() => setSelectedBroker(broker.name)}
-                >
-                  <div>
-                    <strong>{broker.name}</strong>
-                    <small>{broker.type}</small>
-                  </div>
-                  <span>{broker.status}</span>
-                </button>
-              ))}
-            </div>
-
-            <div className="broker-settings">
-              <div className="inline-group">
-                <label className="field-label compact-label">
-                  Broker account
-                  <select className="field" value={brokerAccount} onChange={(e) => setBrokerAccount(e.target.value as 'Demo' | 'Live')}>
-                    <option value="Demo">Demo</option>
-                    <option value="Live">Live</option>
-                  </select>
-                </label>
-
-                <label className="field-label compact-label">
-                  Pair
-                  <select className="field" value={pair} onChange={(e) => setPair(e.target.value)}>
-                    {symbols.map((symbol) => (
-                      <option key={symbol} value={symbol}>{symbol}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              <div className="inline-group">
-                <label className="field-label compact-label">
-                  Minimum confidence %
-                  <input className="field" type="number" min="0" max="100" value={minConfidence} onChange={(e) => setMinConfidence(e.target.value)} />
-                </label>
-
-                <label className="field-label compact-label">
-                  Auto execution
-                  <div className="toggle-wrap">
-                    <button
-                      className={autoExecute ? 'toggle active' : 'toggle'}
-                      onClick={() => setAutoExecute((value) => !value)}
-                      type="button"
-                    >
-                      {autoExecute ? 'ON' : 'OFF'}
-                    </button>
-                  </div>
-                </label>
-              </div>
-
-              <div className="inline-group">
-                <label className="field-label compact-label">
-                  Break even pips
-                  <input className="field" type="number" value={breakEven} onChange={(e) => setBreakEven(e.target.value)} />
-                </label>
-
-                <label className="field-label compact-label">
-                  Partial close %
-                  <input className="field" type="number" min="0" max="100" value={partialClose} onChange={(e) => setPartialClose(e.target.value)} />
-                </label>
-              </div>
-
-              <label className="field-label compact-label">
-                TP levels
-                <input className="field" value={tpLevels} onChange={(e) => setTpLevels(e.target.value)} />
-              </label>
-
-              <div className="broker-actions">
-                <button className="action-button action-primary">Save automation profile</button>
-                <button className="action-button">Test demo signal</button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="panel compact-panel">
-          <div className="panel-head">
-            <div>
-              <div className="mini-label">Structure and plan</div>
-              <h2>Market context</h2>
-            </div>
-          </div>
-
-          <div className="info-grid">
-            <div className="mini-panel">
-              <div className="mini-label">Multi-timeframe</div>
-              {multiTimeframe.map((item) => (
-                <div key={item.label} className="mtf-row">
-                  <span>{item.label}</span>
-                  <strong className="positive">{item.value}</strong>
-                </div>
-              ))}
-            </div>
-
-            <div className="mini-panel">
-              <div className="mini-label">Risk rules</div>
-              {riskBuckets.map((item) => (
-                <div key={item.label} className="mtf-row">
-                  <span>{item.label}</span>
-                  <strong>{item.value}</strong>
-                </div>
-              ))}
-            </div>
-
-            <div className="mini-panel">
-              <div className="mini-label">Daily plan</div>
-              <ul className="checklist">
-                {planChecklist.map((item) => <li key={item}>{item}</li>)}
-              </ul>
-            </div>
-          </div>
-        </section>
-
-        <section className="two-col-grid">
-          <div className="panel">
-            <div className="panel-head">
-              <div>
-                <div className="mini-label">Journal</div>
-                <h2>Recent decisions</h2>
-              </div>
-            </div>
-
-            {journalEntries.map((entry) => (
-              <div className="journal-row" key={`${entry.time}-${entry.setup}`}>
-                <div>
-                  <div className="journal-time">{entry.time}</div>
-                  <strong>{entry.setup}</strong>
-                  <p>{entry.note}</p>
-                </div>
-                <span className="journal-pnl positive">{entry.pnl}</span>
-              </div>
-            ))}
-          </div>
-
-          <div className="panel">
-            <div className="panel-head">
-              <div>
-                <div className="mini-label">Economic calendar</div>
-                <h2>Upcoming events</h2>
-              </div>
-            </div>
-
-            {economicCalendar.slice(0, 4).map((event) => (
-              <div key={event.time + event.event} className="event-row">
-                <span>{event.time} · {event.currency}</span>
-                <strong>{event.event}</strong>
-                <b className={event.impact === 'High' ? 'warning' : 'positive'}>{event.impact}</b>
-              </div>
-            ))}
-          </div>
-        </section>
+        <section className="panel compact-panel"><div className="panel-head"><div><div className="mini-label">Market context</div><h2>Structure and plan</h2></div></div><div className="info-grid"><div className="mini-panel"><div className="mini-label">Multi-timeframe</div>{multiTimeframe.map((item) => <div key={item.label} className="mtf-row"><span>{item.label}</span><strong className="positive">{item.value}</strong></div>)}</div><div className="mini-panel"><div className="mini-label">Trade lock rule</div><p className="caption-text">After “I took this trade”, competing signals are paused until TP2, stop loss, or manual close.</p></div><div className="mini-panel"><div className="mini-label">Economic calendar</div>{economicCalendar.slice(0, 3).map((event) => <div key={event.time + event.event} className="event-row"><span>{event.time} · {event.currency}</span><strong>{event.event}</strong><b className={event.impact === 'High' ? 'warning' : 'positive'}>{event.impact}</b></div>)}</div></div></section>
       </main>
     </div>
   );

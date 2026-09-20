@@ -17,6 +17,14 @@ const riskBuckets = [
   { label: 'Max open trades', value: '3' },
   { label: 'Session rule', value: 'No revenge trading' },
 ];
+const brokerOptions = [
+  { name: 'JustMarkets', type: 'MT5 EA / VPS', status: 'Demo-ready', supports: ['Auto entry', 'Break even', 'Partial close'] },
+  { name: 'Markets.com', type: 'MT5 EA / VPS', status: 'Demo-ready', supports: ['Auto entry', 'Break even', 'Partial close'] },
+  { name: 'Exness', type: 'MT5 EA / VPS', status: 'Demo-ready', supports: ['Auto entry', 'Break even', 'Partial close'] },
+  { name: 'HFM', type: 'MT5 EA / VPS', status: 'Demo-ready', supports: ['Auto entry', 'Break even', 'Partial close'] },
+  { name: 'FBS', type: 'MT5 EA / VPS', status: 'Demo-ready', supports: ['Auto entry', 'Break even', 'Partial close'] },
+  { name: 'Deriv', type: 'REST / WebSocket API', status: 'API-ready', supports: ['API execution', 'Position sync', 'Trade logs'] },
+];
 
 type LivePrice = { symbol: string; price: number | null; change24h: number | null; source: string; error?: string; updatedAt: number };
 
@@ -30,6 +38,14 @@ export default function TradePilotPage() {
   const [manualStop, setManualStop] = useState('');
   const [manualTarget, setManualTarget] = useState('');
   const [updated, setUpdated] = useState('');
+  const [selectedBroker, setSelectedBroker] = useState(brokerOptions[0].name);
+  const [brokerAccount, setBrokerAccount] = useState<'Demo' | 'Live'>('Demo');
+  const [autoExecute, setAutoExecute] = useState(true);
+  const [minConfidence, setMinConfidence] = useState('80');
+  const [pair, setPair] = useState('EURUSD');
+  const [breakEven, setBreakEven] = useState('20');
+  const [partialClose, setPartialClose] = useState('50');
+  const [tpLevels, setTpLevels] = useState('1:2, 1:4');
 
   const loadPrices = async () => {
     const response = await fetch(`/api/market?symbols=${symbols.join(',')}`, { cache: 'no-store' });
@@ -66,6 +82,7 @@ export default function TradePilotPage() {
   const distance = Math.abs(Number(manualEntry || 0) - Number(manualStop || 0));
   const reward = Math.abs(Number(manualTarget || 0) - Number(manualEntry || 0));
   const rr = distance > 0 ? reward / distance : 0;
+  const activeBroker = brokerOptions.find((broker) => broker.name === selectedBroker) ?? brokerOptions[0];
 
   return (
     <div className="app-shell">
@@ -309,6 +326,97 @@ export default function TradePilotPage() {
               <div className="manual-result">
                 <span>Manual R:R</span>
                 <strong>{rr ? `1:${rr.toFixed(2)}` : 'Enter levels'}</strong>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="panel compact-panel broker-panel">
+          <div className="panel-head">
+            <div>
+              <div className="mini-label">Broker automation</div>
+              <h2>Execution router</h2>
+            </div>
+            <span className="broker-status-label">{activeBroker.status}</span>
+          </div>
+
+          <div className="broker-grid">
+            <div className="broker-options">
+              {brokerOptions.map((broker) => (
+                <button
+                  key={broker.name}
+                  className={selectedBroker === broker.name ? 'broker-option active' : 'broker-option'}
+                  onClick={() => setSelectedBroker(broker.name)}
+                >
+                  <div>
+                    <strong>{broker.name}</strong>
+                    <small>{broker.type}</small>
+                  </div>
+                  <span>{broker.status}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="broker-settings">
+              <div className="inline-group">
+                <label className="field-label compact-label">
+                  Broker account
+                  <select className="field" value={brokerAccount} onChange={(e) => setBrokerAccount(e.target.value as 'Demo' | 'Live')}>
+                    <option value="Demo">Demo</option>
+                    <option value="Live">Live</option>
+                  </select>
+                </label>
+
+                <label className="field-label compact-label">
+                  Pair
+                  <select className="field" value={pair} onChange={(e) => setPair(e.target.value)}>
+                    {symbols.map((symbol) => (
+                      <option key={symbol} value={symbol}>{symbol}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="inline-group">
+                <label className="field-label compact-label">
+                  Minimum confidence %
+                  <input className="field" type="number" min="0" max="100" value={minConfidence} onChange={(e) => setMinConfidence(e.target.value)} />
+                </label>
+
+                <label className="field-label compact-label">
+                  Auto execution
+                  <div className="toggle-wrap">
+                    <button
+                      className={autoExecute ? 'toggle active' : 'toggle'}
+                      onClick={() => setAutoExecute((value) => !value)}
+                      type="button"
+                    >
+                      {autoExecute ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
+                </label>
+              </div>
+
+              <div className="inline-group">
+                <label className="field-label compact-label">
+                  Break even pips
+                  <input className="field" type="number" value={breakEven} onChange={(e) => setBreakEven(e.target.value)} />
+                </label>
+
+                <label className="field-label compact-label">
+                  Partial close %
+                  <input className="field" type="number" min="0" max="100" value={partialClose} onChange={(e) => setPartialClose(e.target.value)} />
+                </label>
+              </div>
+
+              <label className="field-label compact-label">
+                TP levels
+                <input className="field" value={tpLevels} onChange={(e) => setTpLevels(e.target.value)} />
+              </label>
+
+              <div className="broker-actions">
+                <button className="action-button action-primary">Save automation profile</button>
+                <button className="action-button">Test demo signal</button>
               </div>
             </div>
           </div>
